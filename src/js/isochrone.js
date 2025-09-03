@@ -9,7 +9,7 @@ export class IsochroneManager {
     this.isochroneData = new Map();
     this.activeLayers = new Set();
     this.currentLocation = null;
-    this.pmtilesSource = null;
+    this.pmtilesSources = new Map(); // Track multiple sources by POI type
   }
 
   // Initialize PMTiles source for isochrones
@@ -17,7 +17,7 @@ export class IsochroneManager {
     const sourceId = `isochrones-${poiType}-${Math.round(location.lat * 1000)}-${Math.round(location.lng * 1000)}`;
     
     if (this.map.getSource(sourceId)) {
-      this.pmtilesSource = sourceId;
+      this.pmtilesSources.set(poiType, sourceId);
       return;
     }
 
@@ -35,7 +35,7 @@ export class IsochroneManager {
         url: `pmtiles://${pmtilesUrl}`
       });
       
-      this.pmtilesSource = sourceId;
+      this.pmtilesSources.set(poiType, sourceId);
       console.log(`PMTiles isochrone source initialized: ${pmtilesFile}`);
       
       // Wait for the source to load before proceeding
@@ -79,6 +79,9 @@ export class IsochroneManager {
   async loadIsochrones(location, poiType) {
     const key = `${poiType}-${location.lat}-${location.lng}`;
     
+    // Set current location for use in layer configuration
+    this.currentLocation = location;
+    
     if (this.isochroneData.has(key)) {
       return this.isochroneData.get(key);
     }
@@ -113,12 +116,13 @@ export class IsochroneManager {
 
   // Add isochrone layers to the map using PMTiles
   addIsochroneLayers(poiType, data) {
-    if (!this.pmtilesSource) {
+    const pmtilesSource = this.pmtilesSources.get(poiType);
+    if (!pmtilesSource) {
       console.log(`No PMTiles source available for ${poiType}`);
       return;
     }
 
-    console.log(`Adding isochrone layers for ${poiType} using source: ${this.pmtilesSource}`);
+    console.log(`Adding isochrone layers for ${poiType} using source: ${pmtilesSource}`);
 
     try {
       // Add layers for each time interval using PMTiles source
@@ -127,8 +131,11 @@ export class IsochroneManager {
 
         // Add layer using PMTiles source
         const layerConfig = createLayerConfig(poiType, time);
-        layerConfig.source = this.pmtilesSource;
-        layerConfig['source-layer'] = 'isochrones'; // PMTiles source layer
+        layerConfig.source = pmtilesSource;
+        // Get the correct source layer name from the PMTiles file
+        const pmtilesFile = this.getPMTilesFileName(poiType, this.currentLocation);
+        const sourceLayerName = pmtilesFile.replace('.pmtiles', '');
+        layerConfig['source-layer'] = sourceLayerName;
         
         console.log(`Adding layer ${layerId} with config:`, layerConfig);
         

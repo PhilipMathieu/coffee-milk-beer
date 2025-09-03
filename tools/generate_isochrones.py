@@ -281,6 +281,8 @@ class IsochroneGenerator:
                     if node_points:
                         # Create convex hull of reachable nodes
                         points_gdf = gpd.GeoDataFrame(geometry=node_points)
+                        # Set the CRS to match the projected coordinate system used by OSMnx
+                        points_gdf.crs = G.graph['crs'] if 'crs' in G.graph else 'EPSG:32619'
                         if len(points_gdf) > 2:  # Need at least 3 points for convex hull
                             convex_hull = points_gdf.union_all().convex_hull
                             isochrones[time_minutes].append(convex_hull)
@@ -289,11 +291,17 @@ class IsochroneGenerator:
                             center_data = G.nodes[center_node]
                             if 'x' in center_data and 'y' in center_data:
                                 center_point = Point(center_data['x'], center_data['y'])
+                                # Create a GeoDataFrame with proper CRS for the buffer
+                                center_gdf = gpd.GeoDataFrame(geometry=[center_point])
+                                center_gdf.crs = G.graph['crs'] if 'crs' in G.graph else 'EPSG:32619'
+                                # Create a reasonable buffer based on walking time
+                                buffer_distance = time_minutes * meters_per_minute  # meters
+                                buffer_geom = center_gdf.buffer(buffer_distance).iloc[0]
                             else:
                                 center_point = Point(center_data['lon'], center_data['lat'])
-                            # Create a reasonable buffer based on walking time
-                            buffer_distance = time_minutes * meters_per_minute  # meters
-                            buffer_geom = center_point.buffer(buffer_distance)
+                                # Create a reasonable buffer based on walking time
+                                buffer_distance = time_minutes * meters_per_minute  # meters
+                                buffer_geom = center_point.buffer(buffer_distance)
                             isochrones[time_minutes].append(buffer_geom)
                 
             except Exception as e:
@@ -314,9 +322,23 @@ class IsochroneGenerator:
                 
                 # Ensure we're working with WGS84 coordinates (lat, lon)
                 # If the geometry is in a projected CRS, we need to transform it back
-                if hasattr(merged, 'crs') and merged.crs and merged.crs != 'EPSG:4326':
-                    # Transform back to WGS84
-                    merged = merged.to_crs('EPSG:4326')
+                # Create a GeoDataFrame to handle CRS transformation properly
+                merged_gdf = gpd.GeoDataFrame(geometry=[merged])
+                # Set CRS if not already set (assume UTM for projected coords)
+                if not merged_gdf.crs:
+                    # Check if coordinates look like projected (large numbers)
+                    coords = list(merged.exterior.coords)[0]
+                    if abs(coords[0]) > 180 or abs(coords[1]) > 90:
+                        # Likely projected coordinates, assume UTM Zone 19N (Portland, ME area)
+                        merged_gdf.crs = 'EPSG:32619'
+                    else:
+                        # Likely already in WGS84
+                        merged_gdf.crs = 'EPSG:4326'
+                
+                # Transform to WGS84 if needed
+                if merged_gdf.crs != 'EPSG:4326':
+                    merged_gdf = merged_gdf.to_crs('EPSG:4326')
+                    merged = merged_gdf.geometry.iloc[0]
                 
                 # Convert to GeoJSON
                 if merged.geom_type == 'Polygon':
