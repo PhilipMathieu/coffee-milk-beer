@@ -1,0 +1,61 @@
+[project]
+name = "coffee-milk-beer"
+version = "1.0.0"
+description = "Geospatial visualization project with MapLibre GL JS, Tailwind CSS, and OSMnx isochrones"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "osmnx>=1.6.0",
+    "geopandas>=0.14.1",
+    "shapely>=2.0.2",
+    "networkx>=3.2.1",
+    "folium>=0.15.0",
+    "requests>=2.31.0",
+    "numpy>=1.24.3",
+    "pandas>=2.0.3",
+    "matplotlib>=3.7.2",
+    "seaborn>=0.12.2",
+    "geopy>=2.4.0",
+    "flask>=2.3.0",
+    "flask-cors>=4.0.0",
+    "pmtiles>=0.3.0",
+    "scipy>=1.13.1",
+]
+
+[project.scripts]
+cmb-generate-isochrones = "tools.generate_isochrones:main"
+cmb-convert-pmtiles = "tools.convert_to_pmtiles:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+# [build-system]
+# requires = ["hatchling"]
+# build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

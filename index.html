@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Milk Beer - Geospatial Accessibility</title>
+    <link href="./dist/tailwind.css" rel="stylesheet">
+    <link href="./src/css/custom.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-50 font-sans">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">
+                        <span class="text-coffee">Coffee</span>
+                        <span class="text-milk">Milk</span>
+                        <span class="text-beer">Beer</span>
+                    </h1>
+                    <span class="ml-3 text-sm text-gray-500">Geospatial Accessibility</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="location-btn" class="bg-map-primary text-white px-4 py-2 rounded-lg hover:bg-map-primary/90 transition-colors">
+                        📍 Use My Location
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex h-screen">
+        <!-- Sidebar -->
+        <aside class="w-80 bg-white shadow-lg border-r border-gray-200 overflow-y-auto">
+            <div class="p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Accessibility Layers</h2>
+                
+                <!-- Coffee Shops -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="coffee-toggle" class="mr-2" checked>
+                            <span class="font-medium text-coffee">Coffee Shops</span>
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <button id="coffee-5" class="px-2 py-1 text-xs bg-coffee/10 text-coffee rounded hover:bg-coffee/20">5min</button>
+                            <button id="coffee-10" class="px-2 py-1 text-xs bg-coffee/20 text-coffee rounded hover:bg-coffee/30">10min</button>
+                            <button id="coffee-15" class="px-2 py-1 text-xs bg-coffee/30 text-coffee rounded hover:bg-coffee/40">15min</button>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <span id="coffee-count">0</span> locations within range
+                    </div>
+                </div>
+
+                <!-- Bars & Restaurants -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="bar-toggle" class="mr-2" checked>
+                            <span class="font-medium text-beer">Bars & Restaurants</span>
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <button id="bar-5" class="px-2 py-1 text-xs bg-beer/10 text-beer rounded hover:bg-beer/20">5min</button>
+                            <button id="bar-10" class="px-2 py-1 text-xs bg-beer/20 text-beer rounded hover:bg-beer/30">10min</button>
+                            <button id="bar-15" class="px-2 py-1 text-xs bg-beer/30 text-beer rounded hover:bg-beer/40">15min</button>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <span id="bar-count">0</span> locations within range
+                    </div>
+                </div>
+
+                <!-- Grocery Stores -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="flex items-center">
+                            <input type="checkbox" id="grocery-toggle" class="mr-2" checked>
+                            <span class="font-medium text-milk">Grocery Stores</span>
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <button id="grocery-5" class="px-2 py-1 text-xs bg-milk/20 text-gray-700 rounded hover:bg-milk/30">5min</button>
+                            <button id="grocery-10" class="px-2 py-1 text-xs bg-milk/30 text-gray-700 rounded hover:bg-milk/40">10min</button>
+                            <button id="grocery-15" class="px-2 py-1 text-xs bg-milk/40 text-gray-700 rounded hover:bg-milk/50">15min</button>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <span id="grocery-count">0</span> locations within range
+                    </div>
+                </div>
+
+                <!-- Legend -->
+                <div class="border-t border-gray-200 pt-4">
+                    <h3 class="text-sm font-medium text-gray-900 mb-3">Legend</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 bg-coffee/30 rounded mr-2"></div>
+                            <span class="text-gray-600">5 minutes</span>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 bg-coffee/50 rounded mr-2"></div>
+                            <span class="text-gray-600">10 minutes</span>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 bg-coffee/70 rounded mr-2"></div>
+                            <span class="text-gray-600">15 minutes</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Map Container -->
+        <div class="flex-1 relative">
+            <div id="map" class="w-full h-full"></div>
+            
+            <!-- Loading Overlay -->
+            <div id="loading-overlay" class="absolute inset-0 bg-white/80 flex items-center justify-center z-50 hidden">
+                <div class="text-center">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-map-primary mx-auto mb-4"></div>
+                    <p class="text-gray-600">Generating isochrones...</p>
+                </div>
+            </div>
+
+            <!-- Info Panel -->
+            <div id="info-panel" class="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-sm hidden">
+                <h3 class="font-semibold text-gray-900 mb-2">Location Info</h3>
+                <div id="info-content" class="text-sm text-gray-600"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Scripts -->
+    <script type="module" src="./src/js/main.js"></script>
+</body>
+</html>

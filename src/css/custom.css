@@ -1,0 +1,94 @@
+/* Custom styles for the geospatial application */
+
+/* Map container styles */
+#map {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom scrollbar for sidebar */
+aside::-webkit-scrollbar {
+  width: 6px;
+}
+
+aside::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+aside::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+aside::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Isochrone layer styles */
+.isochrone-layer {
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.isochrone-layer:hover {
+  opacity: 0.9;
+}
+
+/* POI marker styles */
+.poi-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.poi-marker:hover {
+  transform: scale(1.1);
+}
+
+/* Loading animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom tooltip styles */
+.maplibregl-popup {
+  font-family: 'Inter', sans-serif;
+}
+
+.maplibregl-popup-content {
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  border: none;
+  padding: 16px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  aside {
+    width: 100%;
+    height: auto;
+    position: relative;
+  }
+  
+  main {
+    flex-direction: column;
+  }
+  
+  #map {
+    height: 60vh;
+  }
+}
+
+/* Dark mode support (if needed) */
+@media (prefers-color-scheme: dark) {
+  .dark-mode-toggle {
+    display: block;
+  }
+}
