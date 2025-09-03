@@ -61,23 +61,45 @@ class PMTilesConverter:
         try:
             logger.info(f"Converting {input_file} to PMTiles with tippecanoe")
             layer_name = input_file.stem
-            cmd = [
-                "tippecanoe",
-                "-zg",
-                "--projection=EPSG:4326",
-                "--force",
-                "-o", str(output_file),
-                "-l", layer_name,
-                str(input_file),
+            
+            # Try with different tippecanoe options to handle various coordinate systems
+            cmd_options = [
+                # First try with auto-detection and no projection specified
+                [
+                    "tippecanoe",
+                    "-z14",  # Set explicit max zoom instead of -zg
+                    "--force",
+                    "-o", str(output_file),
+                    "-l", layer_name,
+                    str(input_file),
+                ],
+                # If that fails, try with different projection handling
+                [
+                    "tippecanoe",
+                    "-z14",
+                    "--projection=EPSG:4326",
+                    "--force",
+                    "-o", str(output_file),
+                    "-l", layer_name,
+                    str(input_file),
+                ]
             ]
-            logger.info(f"Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                logger.info(f"Successfully converted to PMTiles: {output_file}")
-                return True
-            else:
-                logger.error(f"Tippecanoe conversion failed: {result.stderr}")
-                return False
+            
+            for i, cmd in enumerate(cmd_options):
+                logger.info(f"Running command (attempt {i+1}): {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    logger.info(f"Successfully converted to PMTiles: {output_file}")
+                    return True
+                else:
+                    logger.warning(f"Tippecanoe conversion attempt {i+1} failed: {result.stderr}")
+                    if i == 0:  # Clean up failed output file
+                        if output_file.exists():
+                            output_file.unlink()
+            
+            logger.error(f"All tippecanoe conversion attempts failed for {input_file}")
+            return False
+            
         except Exception as e:
             logger.error(f"Failed to convert {input_file} to PMTiles: {e}")
             return False

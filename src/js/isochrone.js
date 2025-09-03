@@ -1,5 +1,6 @@
 import { CONFIG, ISOCHRONE_CONFIG } from './config.js';
 import { createLayerConfig } from './map-config.js';
+import { PMTiles } from 'pmtiles';
 
 // Isochrone data manager for PMTiles
 export class IsochroneManager {
@@ -12,20 +13,65 @@ export class IsochroneManager {
   }
 
   // Initialize PMTiles source for isochrones
-  async initializePMTilesSource() {
-    if (this.pmtilesSource) return;
+  async initializePMTilesSource(poiType, location) {
+    const sourceId = `isochrones-${poiType}-${Math.round(location.lat * 1000)}-${Math.round(location.lng * 1000)}`;
+    
+    if (this.map.getSource(sourceId)) {
+      this.pmtilesSource = sourceId;
+      return;
+    }
 
     try {
+      // Determine the correct PMTiles file based on location and POI type
+      const pmtilesFile = this.getPMTilesFileName(poiType, location);
+      const pmtilesUrl = `${window.location.origin}/pmtiles/${pmtilesFile}`;
+      
+      // Create PMTiles instance
+      const p = new PMTiles(pmtilesUrl);
+      
       // Add PMTiles source for isochrones
-      this.map.addSource('isochrones-pmtiles', {
+      this.map.addSource(sourceId, {
         type: 'vector',
-        url: 'pmtiles:/pmtiles/isochrones.pmtiles'
+        url: `pmtiles://${pmtilesUrl}`
       });
       
-      this.pmtilesSource = 'isochrones-pmtiles';
-      console.log('PMTiles isochrone source initialized');
+      this.pmtilesSource = sourceId;
+      console.log(`PMTiles isochrone source initialized: ${pmtilesFile}`);
+      
+      // Wait for the source to load before proceeding
+      return new Promise((resolve, reject) => {
+        this.map.on('sourcedata', (e) => {
+          if (e.sourceId === sourceId && e.isSourceLoaded) {
+            console.log(`PMTiles source ${sourceId} loaded successfully`);
+            resolve();
+          }
+        });
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          reject(new Error(`PMTiles source ${sourceId} failed to load within 10 seconds`));
+        }, 10000);
+      });
+      
     } catch (error) {
       console.error('Failed to initialize PMTiles source:', error);
+      throw error;
+    }
+  }
+
+  // Get the correct PMTiles filename based on POI type and location
+  getPMTilesFileName(poiType, location) {
+    // For now, use the Portland, ME files as they seem to be the main ones
+    // In a real implementation, you'd determine the correct file based on location
+    const lat = Math.round(location.lat * 1000);
+    const lng = Math.round(location.lng * 1000);
+    
+    // Check if we're in the Portland, ME area (roughly)
+    if (lat >= 43600 && lat <= 43700 && lng >= -70250 && lng <= -70200) {
+      return `${poiType}_Portland_ME_isochrones.pmtiles`;
+    } else {
+      // Default to Portland, ME for now
+      return `${poiType}_Portland_ME_isochrones.pmtiles`;
     }
   }
 
@@ -38,8 +84,8 @@ export class IsochroneManager {
     }
 
     try {
-      // Initialize PMTiles source if not already done
-      await this.initializePMTilesSource();
+      // Initialize PMTiles source for this specific location and POI type
+      await this.initializePMTilesSource(poiType, location);
       
       // For PMTiles, we'll create a mock data structure since the actual data
       // will be loaded via vector tiles. This is a placeholder for the UI.
@@ -67,7 +113,12 @@ export class IsochroneManager {
 
   // Add isochrone layers to the map using PMTiles
   addIsochroneLayers(poiType, data) {
-    if (!this.pmtilesSource) return;
+    if (!this.pmtilesSource) {
+      console.log(`No PMTiles source available for ${poiType}`);
+      return;
+    }
+
+    console.log(`Adding isochrone layers for ${poiType} using source: ${this.pmtilesSource}`);
 
     try {
       // Add layers for each time interval using PMTiles source
@@ -79,8 +130,15 @@ export class IsochroneManager {
         layerConfig.source = this.pmtilesSource;
         layerConfig['source-layer'] = 'isochrones'; // PMTiles source layer
         
-        this.map.addLayer(layerConfig);
-        this.activeLayers.add(layerId);
+        console.log(`Adding layer ${layerId} with config:`, layerConfig);
+        
+        try {
+          this.map.addLayer(layerConfig);
+          this.activeLayers.add(layerId);
+          console.log(`Successfully added layer ${layerId}`);
+        } catch (layerError) {
+          console.error(`Failed to add layer ${layerId}:`, layerError);
+        }
       });
     } catch (error) {
       console.error(`Failed to add isochrone layers for ${poiType}:`, error);

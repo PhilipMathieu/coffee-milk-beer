@@ -74,8 +74,13 @@ class CoffeeMilkBeerApp {
     Object.keys(POI_CONFIG).forEach(poiType => {
       const toggle = document.getElementById(`${poiType}-toggle`);
       if (toggle) {
-        toggle.addEventListener('change', (e) => {
-          this.togglePOIType(poiType, e.target.checked);
+        toggle.addEventListener('change', async (e) => {
+          e.preventDefault();
+          try {
+            await this.togglePOIType(poiType, e.target.checked);
+          } catch (error) {
+            console.error(`Error toggling ${poiType}:`, error);
+          }
         });
       }
     });
@@ -244,11 +249,15 @@ class CoffeeMilkBeerApp {
   }
 
   // Toggle POI type visibility
-  togglePOIType(poiType, visible) {
+  async togglePOIType(poiType, visible) {
     if (visible) {
       this.activePOITypes.add(poiType);
       if (this.currentLocation) {
-        this.generateIsochrones(poiType);
+        try {
+          await this.generateIsochrones(poiType);
+        } catch (error) {
+          console.error(`Error generating isochrones for ${poiType}:`, error);
+        }
       }
     } else {
       this.activePOITypes.delete(poiType);

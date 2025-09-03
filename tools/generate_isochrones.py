@@ -282,7 +282,7 @@ class IsochroneGenerator:
                         # Create convex hull of reachable nodes
                         points_gdf = gpd.GeoDataFrame(geometry=node_points)
                         if len(points_gdf) > 2:  # Need at least 3 points for convex hull
-                            convex_hull = points_gdf.unary_union.convex_hull
+                            convex_hull = points_gdf.union_all().convex_hull
                             isochrones[time_minutes].append(convex_hull)
                         else:
                             # If too few points, create a small buffer around the center

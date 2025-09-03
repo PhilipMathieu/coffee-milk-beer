@@ -74,6 +74,7 @@ src/data/cache/
 
 # Generated isochrones (can be regenerated)
 src/data/isochrones/*.geojson
+src/data/pmtiles/*.pmtiles
 
 # Temporary files
 *.tmp

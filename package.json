@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tailwind:watch": "tailwindcss -i ./src/css/tailwind.css -o ./dist/tailwind.css --watch",
     "tailwind:build": "tailwindcss -i ./src/css/tailwind.css -o ./dist/tailwind.css --minify",
-    "build:site": "npm run tailwind:build && npm run build"
+    "build:site": "npm run tailwind:build && npm run build",
+    "build:data": "uv run python tools/generate_isochrones.py && uv run python tools/convert_to_pmtiles.py",
+    "build:all": "npm run build:data && npm run build:site"
   },
   "dependencies": {
     "maplibre-gl": "^3.6.0",
