@@ -1,17 +1,10 @@
-# Coffee Milk Beer - Geospatial Visualization Project
+# Coffee Milk Beer - Neighborhood Essentials
 
-A comprehensive geospatial data visualization project that combines MapLibre GL JS, Tailwind CSS, and OSMnx to create interactive maps showing precomputed isochrones to various points of interest.
+A geospatial data visualization project that combines MapLibre GL JS, Tailwind CSS, and OSMnx to create interactive maps showing precomputed isochrones to various points of interest:
 
-## Features
-
-- **Interactive Maps**: Built with MapLibre GL JS for smooth, performant map rendering
-- **Modern UI**: Styled with Tailwind CSS for a clean, responsive design
-- **Precomputed Isochrones**: Uses OSMnx to generate and cache isochrone data for fast visualization
-- **OSM Integration**: Leverages OpenStreetMap data for accurate routing and accessibility analysis
-- **Default Visualizations**:
-  - Coffee shop accessibility (isochrones)
-  - Bar and restaurant accessibility
-  - Grocery store accessibility
+- Coffee shops
+- Bars and restaurants
+- Grocery stores
 
 ## Project Structure
 
