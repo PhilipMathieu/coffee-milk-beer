@@ -21,6 +21,7 @@ from shapely.ops import unary_union
 import folium
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
+import matplotlib.pyplot as plt
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +45,11 @@ CONFIG = {
     'simplify': True,
     'clean_periphery': True,
     'custom_filter': None
+    ,
+    # Verbose plotting: when True, save intermediate plots (network, POIs, reachable nodes, hulls)
+    'verbose': False,
+    # Subdirectory under output_dir to save verbose plots
+    'verbose_dir': 'verbose'
 }
 
 # POI type definitions
@@ -99,12 +105,14 @@ class IsochroneGenerator:
             ox.settings.log_file = True
         except AttributeError:
             # Fallback for older OSMnx versions if needed
-            pass
+            raise ImportError("OSMnx version 2.x or higher is required")
     
     def setup_directories(self):
         """Create necessary directories if they don't exist."""
         Path(self.config['output_dir']).mkdir(parents=True, exist_ok=True)
         Path(self.config['cache_dir']).mkdir(parents=True, exist_ok=True)
+        if self.config.get('verbose'):
+            Path(self.config['output_dir']).joinpath(self.config.get('verbose_dir', 'verbose')).mkdir(parents=True, exist_ok=True)
     
     def get_location_coordinates(self, location_query: str) -> Tuple[float, float]:
         """Get coordinates for a location query using geocoding."""
@@ -167,12 +175,7 @@ class IsochroneGenerator:
                     dist=radius
                 )
             except AttributeError:
-                # Fallback for older OSMnx
-                pois = ox.geometries_from_point(
-                    (lat, lon),
-                    tags=poi_config['tags'],
-                    dist=radius
-                )
+                raise ImportError("OSMnx version 2.x or later is required for this functionality")
             
             # If no results, try fallback tags
             if pois.empty and 'fallback_tags' in poi_config:
@@ -205,6 +208,12 @@ class IsochroneGenerator:
                 pois = pois[available_cols]
                 
                 logger.info(f"Found {len(pois)} {poi_type} POIs")
+                # Ensure POIs have a CRS (assume WGS84 if not set)
+                if pois.crs is None:
+                    try:
+                        pois.set_crs('EPSG:4326', inplace=True)
+                    except Exception:
+                        pois.crs = 'EPSG:4326'
                 return pois
             else:
                 logger.warning(f"No POIs found for {poi_type}")
@@ -225,20 +234,26 @@ class IsochroneGenerator:
             
             # Get POIs
             pois = self.get_pois(center_coords, poi_type, self.config['max_distance'])
+
+            # If verbose, plot the network and POIs
+            if self.config.get('verbose'):
+                try:
+                    # Find center node for plotting context (safe best-effort)
+                    try:
+                        center_node = ox.distance.nearest_nodes(G, center_coords[1], center_coords[0])
+                    except Exception:
+                        center_node = None
+                    self._plot_network_and_pois(G, center_node, pois, poi_type, center_coords)
+                except Exception as e:
+                    logger.warning(f"Verbose plotting failed at initial step: {e}")
             
             if pois.empty:
                 logger.warning(f"No POIs found for {poi_type}, skipping isochrone generation")
                 return self._create_empty_isochrones()
             
-            # Find the nearest node to the center
-            # center_coords is (lat, lon), but OSMnx expects (lon, lat)
-            try:
-                center_node = ox.distance.nearest_nodes(G, center_coords[1], center_coords[0])
-            except AttributeError:
-                center_node = ox.nearest_nodes(G, center_coords[1], center_coords[0])
-            
-            # Calculate shortest paths to all POIs
-            isochrones = self._calculate_isochrones(G, center_node, pois)
+            # Calculate isochrones around each POI and merge into a master isochrone
+            # for this POI category. This produces one merged polygon per time interval.
+            isochrones = self._calculate_isochrones(G, pois)
             
             # Convert to GeoJSON
             geojson = self._isochrones_to_geojson(isochrones, poi_type)
@@ -250,65 +265,237 @@ class IsochroneGenerator:
             logger.error(f"Error generating isochrones for {poi_type}: {e}")
             return self._create_empty_isochrones()
     
-    def _calculate_isochrones(self, G: ox.graph, center_node: int, 
-                             pois: gpd.GeoDataFrame) -> Dict[int, List[Polygon]]:
-        """Calculate isochrones for different time intervals using proper OSMnx methods."""
+    def _calculate_isochrones(self, G: ox.graph, pois: gpd.GeoDataFrame) -> Dict[int, List[Polygon]]:
+        """Calculate isochrones by generating per-POI reachable polygons and
+        returning a list of polygons per time interval to be merged later.
+
+        We treat each POI as a center and compute reachable nodes within each
+        time interval, build a hull/buffer for that POI/time, and append it to
+        the corresponding time bucket. The final merge happens in
+        _isochrones_to_geojson.
+        """
         isochrones = {time: [] for time in self.config['time_intervals']}
-        
+
         # Add travel time to edges (walking speed: 1.4 m/s = 84 m/min)
         meters_per_minute = 84  # walking speed
-        for u, v, k, data in G.edges(data=True, keys=True):
-            data['time'] = data['length'] / meters_per_minute
-        
-        # Generate isochrones for each time interval
-        for time_minutes in self.config['time_intervals']:
+        for edge in G.edges(data=True, keys=True) if G.is_multigraph() else G.edges(data=True):
+            if len(edge) == 4:
+                u, v, k, data = edge
+            else:
+                u, v, data = edge
+            # Ensure length exists
+            if 'length' in data and data['length'] is not None:
+                data['time'] = data['length'] / meters_per_minute
+
+        # Ensure POIs are in WGS84 for nearest node lookups
+        try:
+            pois_wgs = pois.to_crs('EPSG:4326') if pois.crs and pois.crs != 'EPSG:4326' else pois.copy()
+        except Exception:
+            pois_wgs = pois.copy()
+
+        # Iterate over POIs and generate polygons per time interval
+        for idx, poi in pois_wgs.iterrows():
             try:
-                # Get all nodes reachable within the time limit
-                subgraph = nx.ego_graph(G, center_node, radius=time_minutes, distance='time')
-                
-                if len(subgraph.nodes) > 0:
-                    # Get the boundary of the reachable area
-                    # Create a convex hull from all reachable nodes
-                    node_points = []
-                    for node in subgraph.nodes():
-                        node_data = G.nodes[node]
-                        # Use projected coordinates if available, otherwise lat/lon
-                        if 'x' in node_data and 'y' in node_data:
-                            node_points.append(Point(node_data['x'], node_data['y']))
-                        elif 'lon' in node_data and 'lat' in node_data:
-                            node_points.append(Point(node_data['lon'], node_data['lat']))
-                    
-                    if node_points:
-                        # Create convex hull of reachable nodes
+                geom = poi.geometry
+                if geom is None or geom.is_empty:
+                    continue
+
+                # Get lon, lat for nearest_nodes (OSMnx expects lon, lat)
+                lon, lat = geom.x, geom.y
+
+                try:
+                    poi_node = ox.distance.nearest_nodes(G, lon, lat)
+                except AttributeError:
+                    poi_node = ox.nearest_nodes(G, lon, lat)
+                except Exception:
+                    # If nearest node lookup fails, skip this POI
+                    continue
+
+                # For each time interval compute reachable nodes from this POI
+                for time_minutes in self.config['time_intervals']:
+                    try:
+                        subgraph = nx.ego_graph(G, poi_node, radius=time_minutes, distance='time')
+
+                        if len(subgraph.nodes) == 0:
+                            # fallback: create buffer around POI in projected CRS
+                            # derive a small buffer in meters and add
+                            buffer_distance = time_minutes * meters_per_minute
+                            # Build a GeoDataFrame for projection handling
+                            try:
+                                # Use graph CRS if available, otherwise assume UTM-like
+                                crs_proj = G.graph.get('crs', None)
+                                poi_gdf = gpd.GeoDataFrame(geometry=[geom], crs='EPSG:4326')
+                                if crs_proj and crs_proj != 'EPSG:4326':
+                                    poi_proj = poi_gdf.to_crs(crs_proj)
+                                else:
+                                    poi_proj = poi_gdf.to_crs(poi_gdf.estimate_utm_crs())
+                                poly = poi_proj.buffer(buffer_distance).iloc[0]
+                                # convert back to projected/expected coords for later union
+                                poly = gpd.GeoSeries([poly], crs=poi_proj.crs).to_crs(crs_proj or poi_proj.crs).iloc[0]
+                            except Exception:
+                                # As last resort, buffer in degrees (approximate)
+                                poly = geom.buffer(buffer_distance / 111000.0)
+                            isochrones[time_minutes].append(poly)
+                            continue
+
+                        # Collect node point geometries using projected coordinates when available
+                        node_points = []
+                        for node in subgraph.nodes():
+                            node_data = G.nodes[node]
+                            if 'x' in node_data and 'y' in node_data:
+                                node_points.append(Point(node_data['x'], node_data['y']))
+                            elif 'lon' in node_data and 'lat' in node_data:
+                                node_points.append(Point(node_data['lon'], node_data['lat']))
+
+                        if not node_points:
+                            continue
+
+                        # Build GeoDataFrame for points and set CRS to graph CRS if available
                         points_gdf = gpd.GeoDataFrame(geometry=node_points)
-                        # Set the CRS to match the projected coordinate system used by OSMnx
-                        points_gdf.crs = G.graph['crs'] if 'crs' in G.graph else 'EPSG:32619'
-                        if len(points_gdf) > 2:  # Need at least 3 points for convex hull
-                            convex_hull = points_gdf.union_all().convex_hull
+                        points_gdf.crs = G.graph.get('crs', None) or 'EPSG:32619'
+
+                        if len(points_gdf) > 2:
+                            # union then convex hull to get a single polygon
+                            try:
+                                convex_hull = points_gdf.unary_union.convex_hull
+                            except Exception:
+                                convex_hull = points_gdf.geometry.unary_union.convex_hull
                             isochrones[time_minutes].append(convex_hull)
                         else:
-                            # If too few points, create a small buffer around the center
-                            center_data = G.nodes[center_node]
-                            if 'x' in center_data and 'y' in center_data:
-                                center_point = Point(center_data['x'], center_data['y'])
-                                # Create a GeoDataFrame with proper CRS for the buffer
-                                center_gdf = gpd.GeoDataFrame(geometry=[center_point])
-                                center_gdf.crs = G.graph['crs'] if 'crs' in G.graph else 'EPSG:32619'
-                                # Create a reasonable buffer based on walking time
-                                buffer_distance = time_minutes * meters_per_minute  # meters
-                                buffer_geom = center_gdf.buffer(buffer_distance).iloc[0]
-                            else:
-                                center_point = Point(center_data['lon'], center_data['lat'])
-                                # Create a reasonable buffer based on walking time
-                                buffer_distance = time_minutes * meters_per_minute  # meters
-                                buffer_geom = center_point.buffer(buffer_distance)
-                            isochrones[time_minutes].append(buffer_geom)
-                
+                            # Too few points - buffer the POI in the projected CRS
+                            try:
+                                crs_proj = G.graph.get('crs', None)
+                                poi_gdf = gpd.GeoDataFrame(geometry=[geom], crs='EPSG:4326')
+                                if crs_proj and crs_proj != 'EPSG:4326':
+                                    poi_proj = poi_gdf.to_crs(crs_proj)
+                                else:
+                                    poi_proj = poi_gdf.to_crs(poi_gdf.estimate_utm_crs())
+                                buffer_distance = time_minutes * meters_per_minute
+                                buffer_geom = poi_proj.buffer(buffer_distance).iloc[0]
+                                isochrones[time_minutes].append(buffer_geom)
+                            except Exception:
+                                buffer_geom = geom.buffer((time_minutes * meters_per_minute) / 111000.0)
+                                isochrones[time_minutes].append(buffer_geom)
+
+                    except Exception as e:
+                        logger.debug(f"Skipping POI isochrone for time {time_minutes} at POI {idx}: {e}")
+                        continue
+
             except Exception as e:
-                logger.warning(f"Could not generate isochrone for {time_minutes} minutes: {e}")
+                logger.debug(f"Error processing POI {idx}: {e}")
                 continue
-        
+
         return isochrones
+
+    def _plot_network_and_pois(self, G, center_node, pois, poi_type: str, center_coords: Tuple[float, float]):
+        """Save a plot of the network, center, and POIs for debugging (verbose mode)."""
+        try:
+            outdir = Path(self.config['output_dir']) / self.config.get('verbose_dir', 'verbose')
+            outdir.mkdir(parents=True, exist_ok=True)
+
+            # Try to get nodes and edges GeoDataFrames from OSMnx
+            try:
+                nodes_gdf, edges_gdf = ox.graph_to_gdfs(G)
+            except Exception:
+                # Fallback names for older/newer versions
+                nodes_gdf = None
+                edges_gdf = None
+
+            fig, ax = plt.subplots(figsize=(8, 8))
+
+            # Plot edges if available
+            if edges_gdf is not None and not edges_gdf.empty:
+                edges_gdf.plot(ax=ax, linewidth=0.5, edgecolor='gray')
+
+            # Plot nodes if available
+            if nodes_gdf is not None and not nodes_gdf.empty:
+                nodes_gdf.plot(ax=ax, markersize=2, color='black')
+
+            # Plot POIs (convert to same CRS as nodes if possible)
+            if pois is not None and not pois.empty:
+                try:
+                    if nodes_gdf is not None and nodes_gdf.crs and pois.crs and pois.crs != nodes_gdf.crs:
+                        pois_proj = pois.to_crs(nodes_gdf.crs)
+                    else:
+                        pois_proj = pois
+                    pois_proj.plot(ax=ax, color='red', markersize=20, marker='x', label='POIs')
+                except Exception:
+                    try:
+                        pois.plot(ax=ax, color='red', markersize=20, marker='x')
+                    except Exception:
+                        pass
+
+            # Plot center
+            try:
+                if center_node is not None and nodes_gdf is not None and center_node in nodes_gdf.index:
+                    center_point = nodes_gdf.loc[center_node].geometry
+                    gpd.GeoSeries([center_point]).plot(ax=ax, color='blue', markersize=50, marker='*')
+                else:
+                    # use provided center_coords (lat, lon) and transform to nodes CRS if possible
+                    center_point = Point(center_coords[1], center_coords[0])
+                    center_gs = gpd.GeoSeries([center_point], crs='EPSG:4326')
+                    if nodes_gdf is not None and nodes_gdf.crs and nodes_gdf.crs != 'EPSG:4326':
+                        center_gs = center_gs.to_crs(nodes_gdf.crs)
+                    center_gs.plot(ax=ax, color='blue', markersize=50, marker='*')
+            except Exception:
+                pass
+
+            ax.set_title(f'Network and POIs - {poi_type}')
+            ax.set_axis_off()
+
+            filename = outdir / f'network_pois_{poi_type}.png'
+            fig.savefig(filename, bbox_inches='tight', dpi=200)
+            plt.close(fig)
+            logger.info(f"Saved verbose network/POI plot to {filename}")
+        except Exception as e:
+            logger.warning(f"Failed to save network/POI plot: {e}")
+
+    def _plot_isochrone_step(self, G, center_node, nodes_gdf: gpd.GeoDataFrame, time_minutes: int, poi_type: Optional[str]):
+        """Save a plot of reachable nodes for a given time interval."""
+        try:
+            outdir = Path(self.config['output_dir']) / self.config.get('verbose_dir', 'verbose')
+            outdir.mkdir(parents=True, exist_ok=True)
+
+            # Try to get edges for context
+            try:
+                nodes_all, edges_all = ox.graph_to_gdfs(G)
+            except Exception:
+                nodes_all = None
+                edges_all = None
+
+            fig, ax = plt.subplots(figsize=(8, 8))
+
+            if edges_all is not None and not edges_all.empty:
+                edges_all.plot(ax=ax, linewidth=0.4, color='lightgray')
+
+            # Plot all nodes faintly
+            if nodes_all is not None and not nodes_all.empty:
+                nodes_all.plot(ax=ax, markersize=1, color='gray')
+
+            # Plot reachable nodes
+            try:
+                # nodes_gdf likely in projected CRS; try to match edges CRS
+                if nodes_all is not None and nodes_all.crs and nodes_gdf.crs and nodes_gdf.crs != nodes_all.crs:
+                    nodes_plot = nodes_gdf.to_crs(nodes_all.crs)
+                else:
+                    nodes_plot = nodes_gdf
+                nodes_plot.plot(ax=ax, markersize=6, color='blue', label=f'reachable ({time_minutes} min)')
+            except Exception:
+                try:
+                    nodes_gdf.plot(ax=ax, markersize=6, color='blue')
+                except Exception:
+                    pass
+
+            ax.set_title(f'Reachable nodes - {time_minutes} min')
+            ax.set_axis_off()
+
+            safe_type = poi_type if poi_type else 'all'
+            filename = outdir / f'isochrone_nodes_{safe_type}_{time_minutes}min.png'
+            fig.savefig(filename, bbox_inches='tight', dpi=200)
+            plt.close(fig)
+            logger.info(f"Saved verbose isochrone nodes plot to {filename}")
+        except Exception as e:
+            logger.warning(f"Failed to save isochrone nodes plot: {e}")
     
     def _isochrones_to_geojson(self, isochrones: Dict[int, List[Polygon]], 
                                poi_type: str) -> Dict:
@@ -454,6 +641,8 @@ def main():
                        help='Path to configuration JSON file')
     parser.add_argument('--output-dir', '-o', type=str,
                        help='Output directory for generated files')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='Enable verbose plotting of intermediate results')
     
     args = parser.parse_args()
     
@@ -470,6 +659,10 @@ def main():
     # Override output directory if provided
     if args.output_dir:
         config['output_dir'] = args.output_dir
+
+    # CLI flag to enable verbose plotting
+    if getattr(args, 'verbose', False):
+        config['verbose'] = True
     
     # Initialize generator
     generator = IsochroneGenerator(config)
