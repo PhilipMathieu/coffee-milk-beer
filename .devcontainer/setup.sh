@@ -12,7 +12,7 @@ sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev
 # Install uv (Python package manager)
 echo "📦 Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
+source "$HOME/.local/bin/env"
 
 # Install Python dependencies
 echo "🐍 Installing Python dependencies..."
@@ -26,9 +26,9 @@ npm install
 echo "🗺️  Installing tippecanoe..."
 git clone https://github.com/felt/tippecanoe.git /tmp/tippecanoe
 cd /tmp/tippecanoe
-make -j
+make -j$(nproc)
 sudo make install
-cd -
+cd /workspaces/coffee-milk-beer
 rm -rf /tmp/tippecanoe
 
 echo "✅ Development environment setup complete!"
