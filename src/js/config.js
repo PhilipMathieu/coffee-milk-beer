@@ -5,7 +5,7 @@ export const CONFIG = {
     defaultCenter: [43.6591, -70.2568], // Portland, Maine
     defaultZoom: 13,
     maxZoom: 18,
-    minZoom: 8,
+    minZoom: 5,
     style: 'style.json'
   },
   
